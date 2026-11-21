@@ -3,8 +3,11 @@
   "account_id": "6f70f01784ebe6da2b00b3dbdd0a328a",
   "main": ".output/server/index.mjs",
   "compatibility_date": "2026-11-21",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
   "workers_dev": true,
+  "kv_namespaces": [
+    { "binding": "DB_SNAPSHOT", "id": "df0aad3947674cf2af0d1c451f4a3b0e" }
+  ],
   "assets": {
     "directory": ".output/public",
     "binding": "ASSETS"
