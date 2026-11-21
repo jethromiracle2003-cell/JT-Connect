@@ -105,13 +105,70 @@ function createNeonSql(): Promise<Sql> {
   return globalRef.__pgSqlPromise__;
 }
 
+type SnapshotStore = {
+  get(key: string, type: "arrayBuffer"): Promise<ArrayBuffer | null>;
+  put(key: string, value: ArrayBuffer): Promise<unknown>;
+};
+
+function isCloudflareWorker(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    /Cloudflare-Workers/i.test(navigator.userAgent)
+  );
+}
+
+/** KV binding set on the Worker as `DB_SNAPSHOT`. Absent in local preview. */
+function snapshotStore(): SnapshotStore | null {
+  const env = (globalThis as typeof globalThis & { __env__?: { DB_SNAPSHOT?: SnapshotStore } })
+    .__env__;
+  return env?.DB_SNAPSHOT ?? null;
+}
+
+let persistQueue: Promise<void> = Promise.resolve();
+
+async function persistSnapshot(
+  pg: import("@electric-sql/pglite").PGlite,
+  store: SnapshotStore,
+): Promise<void> {
+  const blob = await pg.dumpDataDir("gzip");
+  const bytes = await blob.arrayBuffer();
+  await store.put("db", bytes);
+}
+
+function queuePersist(
+  pg: import("@electric-sql/pglite").PGlite,
+  store: SnapshotStore,
+): Promise<void> {
+  persistQueue = persistQueue
+    .catch(() => undefined)
+    .then(() => persistSnapshot(pg, store));
+  return persistQueue;
+}
+
+function isWrite(text: string): boolean {
+  return /^\s*(insert|update|delete|create|alter|drop|commit)\b/i.test(text);
+}
+
+/** Save the embedded database after a write. No-op without the Worker KV binding. */
+export function persistPgliteIfWrite(text: string): Promise<void> {
+  if (!isWrite(text)) return Promise.resolve();
+  const store = snapshotStore();
+  if (!store) return Promise.resolve();
+  return globalRef.__pgliteInstance__?.then((pg) => queuePersist(pg, store)) ?? Promise.resolve();
+}
+
 async function createPgliteSql(): Promise<Sql> {
   // Embedded Postgres, imported on demand so it never loads on the Neon path.
   // One in-memory instance per process, shared across HMR module instances, so
   // data survives source edits (it resets on dev-server restart).
   globalRef.__pgliteInstance__ ??= (async () => {
     const { PGlite } = await import("@electric-sql/pglite");
+    const store = snapshotStore();
+    const saved = store ? await store.get("db", "arrayBuffer") : null;
     const pg = new PGlite({
+      ...(saved && saved.byteLength > 0
+        ? { loadDataDir: new Blob([saved], { type: "application/x-gzip" }) }
+        : {}),
       parsers: {
         [OID_INT8]: Number,
         [OID_DATE]: identity,
@@ -161,8 +218,10 @@ async function createPgliteSql(): Promise<Sql> {
   globalRef.__pgliteMigrateChain__ = pass;
   await pass;
 
+  const store = snapshotStore();
   return toSql(async <T>(text: string, params: unknown[]) => {
     const result = await pg.query<T>(text, params);
+    if (store && isWrite(text)) await queuePersist(pg, store);
     return result.rows;
   });
 }
@@ -221,6 +280,9 @@ export async function getPglite(): Promise<import("@electric-sql/pglite").PGlite
  */
 export function ensureDbReady(): Promise<void> {
   if (dbSource !== "pglite") return Promise.resolve();
+  // Worker modules load before the request sets __env__. Opening PGLite then
+  // would skip the KV snapshot and cache an empty database.
+  if (isCloudflareWorker() && !snapshotStore()) return Promise.resolve();
   return getSql().then(() => undefined);
 }
 
@@ -229,7 +291,7 @@ export function ensureDbReady(): Promise<void> {
 const globalBoot = globalThis as typeof globalThis & {
   __pgBootstrapPromise__?: Promise<void>;
 };
-if (typeof window === "undefined" && dbSource === "pglite") {
+if (typeof window === "undefined" && dbSource === "pglite" && !isCloudflareWorker()) {
   globalBoot.__pgBootstrapPromise__ ??= ensureDbReady().catch((err) => {
     globalBoot.__pgBootstrapPromise__ = undefined;
     console.error("[db] PGLite bootstrap failed:", err);
