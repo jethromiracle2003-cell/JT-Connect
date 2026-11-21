@@ -12,7 +12,7 @@
  */
 export const emailAndPasswordEnabled = true;
 
-const ITERATIONS = 100;
+const ITERATIONS = 10;
 
 function bytesToHex(bytes: Uint8Array): string {
   let hex = "";

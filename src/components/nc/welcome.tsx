@@ -12,17 +12,6 @@ function displayNameFrom(raw: string) {
   return name;
 }
 
-/** Same name always maps to the same hidden login. The person never sees it. */
-async function loginEmail(displayName: string) {
-  const key = displayName.normalize("NFKC").toLowerCase();
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
-  const hex = [...new Uint8Array(digest)]
-    .slice(0, 16)
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-  return `${hex}@users.numberchat.app`;
-}
-
 function friendlyAuthError(message: string | undefined, mode: "create" | "signin") {
   const text = message ?? "";
   if (/already exists/i.test(text)) return "That name is already taken. Pick another.";
@@ -42,39 +31,38 @@ type AuthCall = { ok: true } | { ok: false; message: string; taken?: boolean };
  * isolate is warm, and read the body ourselves so a non-JSON error is visible.
  */
 async function postAuth(
-  path: "sign-up/email" | "sign-in/email",
-  body: { email: string; password: string; name?: string },
+  mode: "create" | "signin",
+  body: { name: string; password: string },
 ): Promise<AuthCall> {
-  const mode = path === "sign-up/email" ? "create" : "signin";
   let last = friendlyAuthError(undefined, mode);
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
-      const response = await fetch(`/api/auth/${path}`, {
+      const response = await fetch("/api/line", {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ mode, ...body }),
       });
       const text = await response.text();
-      let data: { message?: string; code?: string; user?: unknown; detail?: string } | null = null;
+      let data: { message?: string; code?: string; ok?: boolean; detail?: string } | null = null;
       try {
         data = text ? (JSON.parse(text) as NonNullable<typeof data>) : null;
       } catch {
         data = null;
       }
-      if (response.ok && data?.user) return { ok: true };
+      if (response.ok && data?.ok) return { ok: true };
       const raw = (data?.message || data?.detail || "").trim();
       const taken =
         /already exists/i.test(raw) || data?.code === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL";
       if (taken) return { ok: false, message: friendlyAuthError(raw, mode), taken: true };
       if (!data || response.status >= 500) {
         last = friendlyAuthError(raw, mode);
-        await wait(500 * (attempt + 1));
+        await wait(400 * (attempt + 1));
         continue;
       }
       return { ok: false, message: friendlyAuthError(raw, mode) };
     } catch {
-      await wait(500 * (attempt + 1));
+      await wait(400 * (attempt + 1));
     }
   }
   return { ok: false, message: last };
@@ -102,9 +90,8 @@ export function Welcome() {
     }
     setBusy(true);
     try {
-      const email = await loginEmail(displayName);
       if (mode === "signin") {
-        const result = await postAuth("sign-in/email", { email, password });
+        const result = await postAuth("signin", { name: displayName, password });
         if (!result.ok) {
           setError(result.message);
           return;
@@ -113,9 +100,9 @@ export function Welcome() {
         return;
       }
       if (!accountReady) {
-        const created = await postAuth("sign-up/email", { email, password, name: displayName });
+        const created = await postAuth("create", { name: displayName, password });
         if (!created.ok && created.taken) {
-          const signed = await postAuth("sign-in/email", { email, password });
+          const signed = await postAuth("signin", { name: displayName, password });
           if (!signed.ok) {
             setError("That name is already taken. Pick another.");
             return;
@@ -126,7 +113,21 @@ export function Welcome() {
         }
         setAccountReady(true);
       }
-      const profile: Profile = await completeOnboarding({ data: { displayName, avatar: null } });
+      let profile: Profile | null = null;
+      let lineError = "Your account is ready, but the number wasn't assigned. Try again.";
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          profile = await completeOnboarding({ data: { displayName, avatar: null } });
+          break;
+        } catch (caught) {
+          lineError = errorText(caught, lineError);
+          await wait(400 * (attempt + 1));
+        }
+      }
+      if (!profile) {
+        setError(lineError);
+        return;
+      }
       sessionStorage.setItem(NEW_LINE_KEY, JSON.stringify(profile));
       window.location.assign("/");
     } catch (caught) {
