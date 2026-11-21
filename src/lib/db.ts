@@ -235,6 +235,10 @@ async function createSql(): Promise<Sql> {
         "or a server route loader, never from client code.",
     );
   }
+  if (isCloudflareWorker()) {
+    const { createD1Sql } = await import("./d1");
+    return createD1Sql();
+  }
   return dbSource === "neon" ? createNeonSql() : createPgliteSql();
 }
 

@@ -55,7 +55,14 @@ export function Welcome() {
             key={provider.providerId}
             variant="ghost"
             className="w-full"
-            onClick={() => void signIn(provider.providerId, { callbackURL: "/" })}
+            onClick={() => {
+              if (window.location.hostname.endsWith(".workers.dev")) {
+                setEmailOpen(true);
+                setError("Google and X sign-in aren't available on this link yet. Use email below.");
+                return;
+              }
+              void signIn(provider.providerId, { callbackURL: "/" });
+            }}
           >
             Continue with {provider.label}
           </Button>

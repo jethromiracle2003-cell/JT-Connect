@@ -5,6 +5,13 @@
   "compatibility_date": "2026-11-21",
   "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
   "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "jt-connect",
+      "database_id": "a35160fe-6c16-48a7-86d5-c9ae8821ac78"
+    }
+  ],
   "kv_namespaces": [
     { "binding": "DB_SNAPSHOT", "id": "df0aad3947674cf2af0d1c451f4a3b0e" }
   ],
