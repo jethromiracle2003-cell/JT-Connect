@@ -3,6 +3,7 @@
  * Lazy: resolves `getClient` on first connection so migrations can finish first.
  */
 import type { PGlite } from "@electric-sql/pglite";
+import { persistPgliteIfWrite } from "../db";
 import {
   CompiledQuery,
   type DatabaseConnection,
@@ -112,6 +113,7 @@ class PGliteConnection implements DatabaseConnection {
     const result = await this.client.query(compiledQuery.sql, [
       ...compiledQuery.parameters,
     ]);
+    await persistPgliteIfWrite(compiledQuery.sql);
     if (result.affectedRows) {
       return {
         numAffectedRows: BigInt(result.affectedRows),
