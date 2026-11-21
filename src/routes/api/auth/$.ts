@@ -5,7 +5,7 @@ async function handle(request: Request) {
   try {
     return await auth.handler(request);
   } catch (err) {
-    const message = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+    const message = err instanceof Error ? err.message : String(err);
     return new Response(message.slice(0, 4000), {
       status: 500,
       headers: { "content-type": "text/plain; charset=utf-8" },
