@@ -21,6 +21,11 @@ export function pgToSqlite(text: string): string {
   sql = sql.replace(/\bnow\(\)/gi, "datetime('now')");
   sql = sql.replace(/::(?:timestamptz|text|integer|boolean)/gi, "");
   sql = sql.replace(/\bis\s+distinct\s+from\b/gi, "!=");
+  // D1 accepts UPDATE ... FROM, but not a target-table alias (`update t alias`).
+  sql = sql.replace(
+    /update\s+conversation_members\s+cm\s+set\s+role\s*=\s*'admin'\s+from\s+conversations\s+c\s+where\s+c\.id\s*=\s*cm\.conversation_id\s+and\s+c\.kind\s*=\s*'group'\s+and\s+c\.created_by\s*=\s*cm\.user_id\s+and\s+cm\.role\s*!=\s*'admin'/gi,
+    "update conversation_members set role = 'admin' from conversations c where c.id = conversation_members.conversation_id and c.kind = 'group' and c.created_by = conversation_members.user_id and conversation_members.role != 'admin'",
+  );
   sql = sql.replace(
     /number\s+~\s+'\^\[0-9\]\{10\}\$'/g,
     "length(number) = 10 and number not glob '*[^0-9]*'",
