@@ -224,11 +224,12 @@ export const auth = betterAuth({
     },
   },
 
-  // Cache the session in the short-lived signed `session_data` cookie so reads
-  // (incl. the client's `/get-session`) skip the DB — this shrinks the "loading"
-  // window and reduces auth flicker. See the `auth` skill for the full
-  // flicker-prevention guidance (gate on `isPending`; SSR the session).
-  session: { cookieCache: { enabled: true, maxAge: 300 } },
+  // Skip the signed session_data cookie on Workers. Signing it on top of the
+  // session token pushes a free-plan request over the 10ms CPU cap, and
+  // Cloudflare then returns an empty 500 the client cannot read.
+  session: {
+    cookieCache: { enabled: !onCloudflareWorker, maxAge: 300 },
+  },
 
   // Local email/password — toggled only via `./email-password` (not a plugin).
   ...(emailAndPasswordEnabled

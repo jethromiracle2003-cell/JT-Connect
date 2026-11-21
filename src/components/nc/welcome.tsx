@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { authClient } from "@/lib/auth/client";
 import { Button, fieldClass, Mark } from "@/components/nc/bits";
 import { completeOnboarding } from "@/lib/numberchat/api";
 import { errorText } from "@/lib/numberchat/share";
@@ -32,6 +31,55 @@ function friendlyAuthError(message: string | undefined, mode: "create" | "signin
   return text || (mode === "create" ? "Couldn't create that account." : "That didn't work. Try again.");
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+type AuthCall = { ok: true } | { ok: false; message: string; taken?: boolean };
+
+/**
+ * Free Workers kill a cold sign-up with an empty 500 (10ms CPU). Retry once the
+ * isolate is warm, and read the body ourselves so a non-JSON error is visible.
+ */
+async function postAuth(
+  path: "sign-up/email" | "sign-in/email",
+  body: { email: string; password: string; name?: string },
+): Promise<AuthCall> {
+  const mode = path === "sign-up/email" ? "create" : "signin";
+  let last = friendlyAuthError(undefined, mode);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(`/api/auth/${path}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify(body),
+      });
+      const text = await response.text();
+      let data: { message?: string; code?: string; user?: unknown; detail?: string } | null = null;
+      try {
+        data = text ? (JSON.parse(text) as NonNullable<typeof data>) : null;
+      } catch {
+        data = null;
+      }
+      if (response.ok && data?.user) return { ok: true };
+      const raw = (data?.message || data?.detail || "").trim();
+      const taken =
+        /already exists/i.test(raw) || data?.code === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL";
+      if (taken) return { ok: false, message: friendlyAuthError(raw, mode), taken: true };
+      if (!data || response.status >= 500) {
+        last = friendlyAuthError(raw, mode);
+        await wait(500 * (attempt + 1));
+        continue;
+      }
+      return { ok: false, message: friendlyAuthError(raw, mode) };
+    } catch {
+      await wait(500 * (attempt + 1));
+    }
+  }
+  return { ok: false, message: last };
+}
+
 export function Welcome() {
   const [mode, setMode] = useState<"create" | "signin">("create");
   const [name, setName] = useState("");
@@ -53,33 +101,38 @@ export function Welcome() {
       return;
     }
     setBusy(true);
-    const email = await loginEmail(displayName);
-    if (mode === "signin") {
-      const result = await authClient.signIn.email({ email, password });
-      if (result.error) {
-        setBusy(false);
-        setError(friendlyAuthError(result.error.message, mode));
-        return;
-      }
-      window.location.assign("/");
-      return;
-    }
-    if (!accountReady) {
-      const result = await authClient.signUp.email({ email, password, name: displayName });
-      if (result.error) {
-        setBusy(false);
-        setError(friendlyAuthError(result.error.message, mode));
-        return;
-      }
-      setAccountReady(true);
-    }
     try {
+      const email = await loginEmail(displayName);
+      if (mode === "signin") {
+        const result = await postAuth("sign-in/email", { email, password });
+        if (!result.ok) {
+          setError(result.message);
+          return;
+        }
+        window.location.assign("/");
+        return;
+      }
+      if (!accountReady) {
+        const created = await postAuth("sign-up/email", { email, password, name: displayName });
+        if (!created.ok && created.taken) {
+          const signed = await postAuth("sign-in/email", { email, password });
+          if (!signed.ok) {
+            setError("That name is already taken. Pick another.");
+            return;
+          }
+        } else if (!created.ok) {
+          setError(created.message);
+          return;
+        }
+        setAccountReady(true);
+      }
       const profile: Profile = await completeOnboarding({ data: { displayName, avatar: null } });
       sessionStorage.setItem(NEW_LINE_KEY, JSON.stringify(profile));
       window.location.assign("/");
     } catch (caught) {
-      setBusy(false);
       setError(errorText(caught, "Your account is ready, but the number wasn't assigned. Try again."));
+    } finally {
+      setBusy(false);
     }
   }
 

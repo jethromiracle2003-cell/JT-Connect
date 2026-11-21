@@ -6,10 +6,10 @@ async function handle(request: Request) {
     return await auth.handler(request);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return new Response(message.slice(0, 500), {
-      status: 500,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
+    return Response.json(
+      { message: message.slice(0, 300) || "Sign-up failed.", code: "AUTH_FAILED" },
+      { status: 500 },
+    );
   }
 }
 
