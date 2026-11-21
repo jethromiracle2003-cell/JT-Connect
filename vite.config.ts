@@ -160,6 +160,9 @@ export default defineConfig(({ command, isPreview }) => ({
   resolve: { tsconfigPaths: true },
   define: {
     "process.env.BETTER_AUTH_SECRET": JSON.stringify(process.env.BETTER_AUTH_SECRET ?? ""),
+    "process.env.APP_RUNTIME": JSON.stringify(
+      (process.env.NITRO_PRESET || "").startsWith("cloudflare") ? "cloudflare" : "node",
+    ),
   },
   plugins: [
     pgliteBootstrapPlugin(),
