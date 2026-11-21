@@ -9,11 +9,42 @@ import { copyNumber, errorText, shareNumber } from "@/lib/numberchat/share";
 import type { Profile } from "@/lib/numberchat/types";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
 
+export function AssignedLine({
+  profile,
+  onReady,
+}: {
+  profile: Profile;
+  onReady: () => void;
+}) {
+  return (
+    <main className="mx-auto flex h-full w-full max-w-md flex-col justify-center overflow-y-auto px-6 py-10">
+      <p className="text-sm font-medium text-muted">This is your line, {profile.displayName}</p>
+      <h1 className="mt-2 text-3xl font-semibold tracking-tight text-balance">
+        Share it with anyone you want to hear from.
+      </h1>
+      <p className="mt-8 text-center text-4xl font-semibold tracking-wide text-balance tabular-nums md:text-5xl">
+        {formatNumber(profile.number)}
+      </p>
+      <p className="mt-3 text-center text-sm text-muted">Not a phone number. Just your NumberChat line.</p>
+      <div className="mt-8 grid grid-cols-2 gap-3">
+        <Button variant="ghost" onClick={() => void copyNumber(profile.number)}>
+          Copy number
+        </Button>
+        <Button variant="ghost" onClick={() => void shareNumber(profile.number)}>
+          Share my number
+        </Button>
+      </div>
+      <Button className="mt-3 w-full" onClick={onReady}>
+        Open chats
+      </Button>
+    </main>
+  );
+}
+
 export function Onboarding({ onReady }: { onReady: (profile: Profile) => void }) {
   const user = useCurrentUser();
   const [name, setName] = useState("");
   const [avatar, setAvatar] = useState<string | null>(null);
-  const [step, setStep] = useState<"form" | "number">("form");
   const [profile, setProfile] = useState<Profile | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -40,7 +71,6 @@ export function Onboarding({ onReady }: { onReady: (profile: Profile) => void })
     try {
       const next = await completeOnboarding({ data: { displayName: name, avatar } });
       setProfile(next);
-      setStep("number");
     } catch (caught) {
       setError(errorText(caught, "Couldn't assign your number"));
     } finally {
@@ -48,30 +78,8 @@ export function Onboarding({ onReady }: { onReady: (profile: Profile) => void })
     }
   }
 
-  if (step === "number" && profile) {
-    return (
-      <main className="mx-auto flex h-full w-full max-w-md flex-col justify-center overflow-y-auto px-6 py-10">
-        <p className="text-sm font-medium text-muted">This is your line</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-balance">
-          Share it with anyone you want to hear from.
-        </h1>
-        <p className="mt-8 text-center text-4xl font-semibold tracking-wide text-balance tabular-nums md:text-5xl">
-          {formatNumber(profile.number)}
-        </p>
-        <p className="mt-3 text-center text-sm text-muted">Not a phone number. Just your NumberChat line.</p>
-        <div className="mt-8 grid grid-cols-2 gap-3">
-          <Button variant="ghost" onClick={() => void copyNumber(profile.number)}>
-            Copy number
-          </Button>
-          <Button variant="ghost" onClick={() => void shareNumber(profile.number)}>
-            Share my number
-          </Button>
-        </div>
-        <Button className="mt-3 w-full" onClick={() => onReady(profile)}>
-          Open chats
-        </Button>
-      </main>
-    );
+  if (profile) {
+    return <AssignedLine profile={profile} onReady={() => onReady(profile)} />;
   }
 
   return (
