@@ -94,7 +94,11 @@ export const authConfigured =
 const explicitBaseURL = env("BETTER_AUTH_URL");
 // Explicit `string[]` (not a readonly tuple) — Better Auth's DynamicBaseURLConfig
 // requires a mutable `allowedHosts: string[]`.
-const previewAllowedHosts: string[] = [...PREVIEW_ALLOWED_HOSTS];
+const previewAllowedHosts: string[] = [
+  ...PREVIEW_ALLOWED_HOSTS,
+  // Cloudflare Workers deploy (`name.account.workers.dev`).
+  "*.workers.dev",
+];
 // Local `npm run dev` (port 8080 contract). Browsers may send Origin as any of
 // these for the same server — trusting only `localhost` rejects `127.0.0.1` and
 // breaks email/password with "Invalid origin".
@@ -125,7 +129,16 @@ const trustedOrigins: string[] = explicitBaseURL
       ...LOCAL_DEV_ORIGINS,
     ];
 
-const databaseUrl = env("DATABASE_URL");
+const onCloudflareWorker =
+  typeof navigator !== "undefined" &&
+  /Cloudflare-Workers/i.test(navigator.userAgent);
+// Local/preview: pin a process-stable secret now. On Workers, bindings land in
+// process.env only during the request, so leave `secret` unset and let
+// Better Auth read BETTER_AUTH_SECRET then. A random secret here would be
+// different on every isolate and every session would look signed out.
+if (!onCloudflareWorker && !env("BETTER_AUTH_SECRET")) {
+  process.env.BETTER_AUTH_SECRET = previewAuthSecret();
+}
 
 // Static broker OAuth endpoints (skip OIDC discovery on every sign-in / callback).
 // Discovery would cost an extra network hop to the broker before the popup can
@@ -135,6 +148,8 @@ const issuerBase = grokIssuer.replace(/\/+$/, "");
 const grokAuthorizationUrl = `${issuerBase}/api/auth/oauth2/authorize`;
 const grokTokenUrl = `${issuerBase}/api/auth/oauth2/token`;
 const grokUserInfoUrl = `${issuerBase}/api/auth/oauth2/userinfo`;
+
+const databaseUrl = env("DATABASE_URL");
 
 // Real Postgres when `DATABASE_URL` is set (deployed apps), else the app's
 // embedded PGLite (preview) via a Kysely dialect — so Better Auth persists to the
@@ -176,7 +191,10 @@ export const auth = betterAuth({
   baseURL,
   // Deployed apps inject BETTER_AUTH_SECRET. Preview: process-stable secret on
   // globalThis so HMR doesn't invalidate PGLite-backed sessions (see above).
-  secret: env("BETTER_AUTH_SECRET") ?? previewAuthSecret(),
+  // Workers omit this so the request-time env binding is used.
+  ...(onCloudflareWorker
+    ? {}
+    : { secret: env("BETTER_AUTH_SECRET") ?? previewAuthSecret() }),
   database,
 
   // CSRF / origin check for credentialed auth POSTs (email sign-up/sign-in, …).
