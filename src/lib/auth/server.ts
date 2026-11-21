@@ -129,16 +129,10 @@ const trustedOrigins: string[] = explicitBaseURL
       ...LOCAL_DEV_ORIGINS,
     ];
 
+const bakedAuthSecret = process.env.BETTER_AUTH_SECRET;
 const onCloudflareWorker =
   typeof navigator !== "undefined" &&
   /Cloudflare-Workers/i.test(navigator.userAgent);
-// Local/preview: pin a process-stable secret now. On Workers, bindings land in
-// process.env only during the request, so leave `secret` unset and let
-// Better Auth read BETTER_AUTH_SECRET then. A random secret here would be
-// different on every isolate and every session would look signed out.
-if (!onCloudflareWorker && !env("BETTER_AUTH_SECRET")) {
-  process.env.BETTER_AUTH_SECRET = previewAuthSecret();
-}
 
 // Static broker OAuth endpoints (skip OIDC discovery on every sign-in / callback).
 // Discovery would cost an extra network hop to the broker before the popup can
@@ -192,9 +186,11 @@ export const auth = betterAuth({
   // Deployed apps inject BETTER_AUTH_SECRET. Preview: process-stable secret on
   // globalThis so HMR doesn't invalidate PGLite-backed sessions (see above).
   // Workers omit this so the request-time env binding is used.
-  ...(onCloudflareWorker
-    ? {}
-    : { secret: env("BETTER_AUTH_SECRET") ?? previewAuthSecret() }),
+  ...(bakedAuthSecret
+    ? { secret: bakedAuthSecret }
+    : onCloudflareWorker
+      ? {}
+      : { secret: env("BETTER_AUTH_SECRET") ?? previewAuthSecret() }),
   database,
 
   // CSRF / origin check for credentialed auth POSTs (email sign-up/sign-in, …).
