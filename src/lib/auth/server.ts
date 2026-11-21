@@ -131,9 +131,12 @@ const trustedOrigins: string[] = explicitBaseURL
     ];
 
 const bakedAuthSecret = process.env.BETTER_AUTH_SECRET;
+// Baked at build time from NITRO_PRESET so the Worker never opens PGLite.
+// navigator.userAgent is not a reliable signal during module init.
 const onCloudflareWorker =
-  typeof navigator !== "undefined" &&
-  /Cloudflare-Workers/i.test(navigator.userAgent);
+  process.env.APP_RUNTIME === "cloudflare" ||
+  (typeof navigator !== "undefined" &&
+    /Cloudflare-Workers/i.test(navigator.userAgent));
 
 // Static broker OAuth endpoints (skip OIDC discovery on every sign-in / callback).
 // Discovery would cost an extra network hop to the broker before the popup can

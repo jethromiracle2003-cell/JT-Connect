@@ -112,8 +112,9 @@ type SnapshotStore = {
 
 function isCloudflareWorker(): boolean {
   return (
-    typeof navigator !== "undefined" &&
-    /Cloudflare-Workers/i.test(navigator.userAgent)
+    process.env.APP_RUNTIME === "cloudflare" ||
+    (typeof navigator !== "undefined" &&
+      /Cloudflare-Workers/i.test(navigator.userAgent))
   );
 }
 
